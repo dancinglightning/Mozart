@@ -1,8 +1,7 @@
-# build_fingerprint_db.py
-
 import os
 import json
-import acoustid
+import librosa
+import numpy as np
 
 DB_FILE = "fingerprints.json"
 
@@ -10,7 +9,13 @@ def load_db():
     """Load the fingerprint database from a JSON file."""
     if os.path.exists(DB_FILE):
         with open(DB_FILE, "r") as f:
-            return json.load(f)
+            try:
+                data = f.read().strip()
+                if not data:
+                    return []
+                return json.loads(data)
+            except json.decoder.JSONDecodeError:
+                return []
     else:
         return []
 
@@ -21,15 +26,22 @@ def save_db(db):
 
 def process_file(file_path):
     """
-    Generate a fingerprint for the audio file using the AcoustID library.
-    Returns a dictionary with the file path, fingerprint, and duration.
+    Process an audio file to extract a rich fingerprint.
+    This version uses librosa to compute a mean MFCC vector (20 coefficients).
     """
     try:
-        fingerprint, duration = acoustid.fingerprint_file(file_path)
+        # Load the audio (first 30 seconds for speed)
+        y, sr = librosa.load(file_path, duration=30)
+        # Compute 20 MFCC coefficients
+        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
+        # Compute the mean value for each coefficient over time
+        mfcc_mean = np.mean(mfcc, axis=1)
+        # Convert the numpy array to a list for JSON serialization
+        fingerprint = mfcc_mean.tolist()
         return {
             "file_path": file_path,
-            "fingerprint": fingerprint,
-            "duration": duration
+            "features": fingerprint,
+            "duration": len(y) / sr
         }
     except Exception as e:
         print(f"Error processing {file_path}: {e}")
@@ -54,7 +66,6 @@ if __name__ == "__main__":
     
     path = sys.argv[1]
     if os.path.isdir(path):
-        # Process all supported audio files in the directory and subdirectories.
         for root, dirs, files in os.walk(path):
             for file in files:
                 if file.lower().endswith((".mp3", ".wav", ".flac")):
